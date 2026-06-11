@@ -1,0 +1,21 @@
+Opción 1: Acceso por Red Local (La más rápida, costo $0$)Si tu celular y la computadora donde ejecutas el script están conectados al mismo Wi-Fi (por ejemplo, el Wi-Fi del taller o de tu casa), no necesitas subir la app a internet.
+  Abre la terminal en tu computadora y arranca la app como siempre: streamlit run app.py.
+    Presta atención a las líneas que aparecen en la terminal. Verás algo como esto:
+You can now view your Streamlit app in your browser.
+
+Local URL:    http://localhost:8501
+Network URL:  http://192.168.1.15:8501
+Toma la Network URL (la que empieza con 192.168...), abre el navegador de tu celular (Safari, Chrome) y escribe esa dirección exacta.
+
+¡Listo! Ya puedes registrar paneles desde el teléfono mientras la computadora esté encendida y corriendo el script.
+
+Opción 2: Usar Streamlit Community Cloud (Gratuito y accesible desde cualquier lugar)
+Si necesitas que los operadores registren paneles desde cualquier parte de la ciudad usando sus datos móviles (sin depender del Wi-Fi local), puedes usar el hosting oficial y gratuito de Streamlit.
+
+    Sube tu código a GitHub: Crea un repositorio privado o público en GitHub y sube tu archivo app.py.
+
+    Crea una cuenta en Streamlit Cloud: Ve a share.streamlit.io e inicia sesión con tu cuenta de GitHub.
+
+    Despliega la App: Haz clic en "New app", selecciona tu repositorio, la rama (main) y el archivo app.py. Haz clic en Deploy.
+
+    En un par de minutos, te dará un enlace web público (ej. https://antenna-prod.streamlit.app). Abre ese enlace en tu celular desde cualquier lugar de USA.
