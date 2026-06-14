@@ -1,91 +1,82 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
+from supabase import create_client, Client
 from datetime import datetime
 
 # ==========================================
-# CONFIGURATION & DATABASE SETUP
+# CLOUD DATABASE CONNECTION (SUPABASE)
 # ==========================================
-DB_NAME = "antenna_production.db"
 
-def init_db():
-    """Initializes the database and creates the tables if they don't exist."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    
-    # 1. Job Configurations Table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS job_configs (
-            job_id TEXT PRIMARY KEY,
-            components TEXT NOT NULL,
-            max_sequence INTEGER NOT NULL,
-            min_panel_id INTEGER NOT NULL,
-            max_panel_id INTEGER NOT NULL
-        )
-    ''')
-    
-    # Populate default jobs if the table is empty
-    cursor.execute("SELECT COUNT(*) FROM job_configs")
-    if cursor.fetchone()[0] == 0:
-        default_jobs = [
-            ("Job #68", "Panel, Subpanel", 10, 1, 45),
-            ("Job #61", "Panel, Subpanel", 5, 1, 45),
-            ("Job #100", "Panel, Subpanel", 16, 1, 45),
-            ("Job #18", "Bottom, Top, Cap", 8, 1, 8),
-            ("Job #12", "Bottom, Top, Cap", 8, 1, 8)
-        ]
-        cursor.executemany('''
-            INSERT INTO job_configs (job_id, components, max_sequence, min_panel_id, max_panel_id)
-            VALUES (?, ?, ?, ?, ?)
-        ''', default_jobs)
-    
-    # 2. Panels Production Table (Core CRUD)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS panels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_id TEXT NOT NULL,
-            component_type TEXT NOT NULL,
-            sequence_num INTEGER NOT NULL,
-            internal_panel_id INTEGER NOT NULL,
-            production_date TEXT NOT NULL,
-            builders TEXT NOT NULL,
-            notes TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+# 1. Secure entry for API Credentials
+# When deploying to Streamlit Cloud, store these in "Advanced Settings -> Secrets"
+# using the format:
+SUPABASE_URL = "https://lymbhtsaehqztqjlvgpb.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5bWJodHNhZWhxenRxamx2Z3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODA5MjUsImV4cCI6MjA5Njk1NjkyNX0.ZlzwBWeHmxHIhjXJwkRcCQZv8OnNhXQPxiMCDUCuNwk"
 
-# Initialize Database Schema
-init_db()
+if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
+    # Production: Read from Streamlit Secure Cloud Secrets
+    URL = st.secrets["https://lymbhtsaehqztqjlvgpb.supabase.co"]
+    KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5bWJodHNhZWhxenRxamx2Z3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODA5MjUsImV4cCI6MjA5Njk1NjkyNX0.ZlzwBWeHmxHIhjXJwkRcCQZv8OnNhXQPxiMCDUCuNwk"]
+else:
+    # Local Development: Paste your keys here temporarily
+    URL = "https://lymbhtsaehqztqjlvgpb.supabase.co"
+    KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5bWJodHNhZWhxenRxamx2Z3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODA5MjUsImV4cCI6MjA5Njk1NjkyNX0.ZlzwBWeHmxHIhjXJwkRcCQZv8OnNhXQPxiMCDUCuNwk"
+
+# Initialize Cloud Connection
+@st.cache_resource
+def get_supabase_client() -> Client:
+    return create_client(URL, KEY)
+
+try:
+    supabase: Client = get_supabase_client()
+except Exception as e:
+    st.error("🚨 Database Connection Error. Check your API Credentials.")
+    st.stop()
+
+# ==========================================
+# DATA FETCHING & MUTATION FUNCTIONS
+# ==========================================
 
 def load_job_structures():
-    """Dynamically loads job configurations from the DB."""
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT job_id, components, max_sequence, min_panel_id, max_panel_id FROM job_configs")
-    rows = cursor.fetchall()
-    conn.close()
-    
-    structure = {}
-    for r in rows:
-        structure[r[0]] = {
-            "components": [c.strip() for c in r[1].split(",")],
-            "max_sequence": r[2],
-            "min_panel_id": r[3],
-            "max_panel_id": r[4]
-        }
-    return structure
+    """Loads job configurations dynamically from Cloud PostgreSQL."""
+    try:
+        response = supabase.table("job_configs").select("*").execute()
+        rows = response.data
+        
+        # If cloud database is brand new, seed initial data
+        if not rows:
+            default_jobs = [
+                {"job_id": "Job #68", "components": "Panel, Subpanel", "max_sequence": 10, "min_panel_id": 1, "max_panel_id": 45},
+                {"job_id": "Job #61", "components": "Panel, Subpanel", "max_sequence": 5, "min_panel_id": 1, "max_panel_id": 45},
+                {"job_id": "Job #100", "components": "Panel, Subpanel", "max_sequence": 16, "min_panel_id": 1, "max_panel_id": 45},
+                {"job_id": "Job #18", "components": "Bottom, Top, Cap", "max_sequence": 8, "min_panel_id": 1, "max_panel_id": 8},
+                {"job_id": "Job #12", "components": "Bottom, Top, Cap", "max_sequence": 8, "min_panel_id": 1, "max_panel_id": 8}
+            ]
+            supabase.table("job_configs").insert(default_jobs).execute()
+            response = supabase.table("job_configs").select("*").execute()
+            rows = response.data
 
-# Load dynamic structure
+        structure = {}
+        for r in rows:
+            structure[r["job_id"]] = {
+                "components": [c.strip() for c in r["components"].split(",")],
+                "max_sequence": int(r["max_sequence"]),
+                "min_panel_id": int(r["min_panel_id"]),
+                "max_panel_id": int(r["max_panel_id"])
+            }
+        return structure
+    except Exception:
+        st.warning("⚠️ Database tables are initializing or need to be created in your Supabase dashboard.")
+        return {}
+
 JOB_STRUCTURES = load_job_structures()
 
 # ==========================================
-# STREAMLIT USER INTERFACE
+# STREAMLIT USER INTERFACE (UI)
 # ==========================================
-st.set_page_config(page_title="Panel Production Control", layout="wide")
-st.title("🏭 Production Management System - Antenna Panels")
+st.set_page_config(page_title="Cloud Panel Production Control", layout="wide")
+st.title("🏭 Cloud Production Management System - Antenna Panels")
 
-# Application Tabs (CRUD + Analytics)
 tab_create, tab_read, tab_dashboard, tab_update_delete = st.tabs([
     "➕ Register / Setup Batches", 
     "🔍 Search & Logs (Read)", 
@@ -108,7 +99,6 @@ with tab_create:
                 config = JOB_STRUCTURES[selected_job]
                 selected_component = st.selectbox("Component Type:", config["components"], key="add_comp")
                 
-                # Special embedded business rules for Top/Cap components
                 max_seq = config["max_sequence"]
                 if selected_component == "Top": max_seq = 4
                 elif selected_component == "Cap": max_seq = 1
@@ -130,63 +120,55 @@ with tab_create:
                 if not builders.strip():
                     st.error("⚠️ The 'Built By' field is required.")
                 else:
-                    conn = sqlite3.connect(DB_NAME)
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        INSERT INTO panels (job_id, component_type, sequence_num, internal_panel_id, production_date, builders, notes)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (selected_job, selected_component, sequence, panel_id, str(prod_date), builders, notes))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"✔️ Success! Registered {selected_component} #{sequence} for {selected_job}.")
+                    data_to_insert = {
+                        "job_id": selected_job,
+                        "component_type": selected_component,
+                        "sequence_num": int(sequence),
+                        "internal_panel_id": int(panel_id),
+                        "production_date": str(prod_date),
+                        "builders": builders.strip(),
+                        "notes": notes.strip()
+                    }
+                    supabase.table("panels").insert(data_to_insert).execute()
+                    st.success(f"✔️ Registered {selected_component} #{sequence} for {selected_job}.")
                     st.rerun()
         else:
-            st.warning("No job configurations found in the system.")
+            st.info("💡 Pro Tip: If this is your first load, please create the 'job_configs' and 'panels' tables in your Supabase SQL Editor.")
 
     with col_new_job:
         st.header("🛠️ Configure New Job Number")
-        st.caption("Create a new custom run with its own validations and components.")
-        
         new_job_id = st.text_input("Job Name/Number:", placeholder="e.g., Job #75")
         structure_type = st.radio("Component Framework Layout:", ["Standard (Panel, Subpanel)", "Divided (Bottom, Top, Cap)", "Custom Layout"])
         
         if structure_type == "Standard (Panel, Subpanel)":
-            suggested_comp = "Panel, Subpanel"
-            suggested_seq = 10
-            suggested_max_id = 45
+            suggested_comp, suggested_seq, suggested_max_id = "Panel, Subpanel", 10, 45
         elif structure_type == "Divided (Bottom, Top, Cap)":
-            suggested_comp = "Bottom, Top, Cap"
-            suggested_seq = 8
-            suggested_max_id = 8
+            suggested_comp, suggested_seq, suggested_max_id = "Bottom, Top, Cap", 8, 8
         else:
-            suggested_comp = "Panel, Subpanel"
-            suggested_seq = 5
-            suggested_max_id = 45
+            suggested_comp, suggested_seq, suggested_max_id = "Panel, Subpanel", 5, 45
 
         components_input = st.text_input("Components (Comma separated):", value=suggested_comp)
         max_seq_input = st.number_input("Maximum Component Sequence:", min_value=1, value=suggested_seq)
         
         nc1, nc2 = st.columns(2)
-        with nc1:
-            min_id_input = st.number_input("Minimum Panel ID:", min_value=1, value=1)
-        with nc2:
-            max_id_input = st.number_input("Maximum Panel ID:", min_value=1, value=suggested_max_id)
+        with nc1: min_id_input = st.number_input("Minimum Panel ID:", min_value=1, value=1)
+        with nc2: max_id_input = st.number_input("Maximum Panel ID:", min_value=1, value=suggested_max_id)
             
         if st.button("⚙️ Register Job Layout", use_container_width=True):
             if not new_job_id.strip() or not components_input.strip():
-                st.error("⚠️ Job name and components are mandatory fields.")
+                st.error("⚠️ All metadata fields are mandatory.")
             elif new_job_id in JOB_STRUCTURES.keys():
-                st.error("⚠️ This Job Number already exists in the system database.")
+                st.error("⚠️ This Job Number already exists in the cloud database.")
             else:
-                conn = sqlite3.connect(DB_NAME)
-                cursor = conn.cursor()
-                cursor.execute('''
-                    INSERT INTO job_configs (job_id, components, max_sequence, min_panel_id, max_panel_id)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (new_job_id.strip(), components_input.strip(), max_seq_input, min_id_input, max_id_input))
-                conn.commit()
-                conn.close()
-                st.success(f"✔️ '{new_job_id}' successfully added to production presets.")
+                job_data = {
+                    "job_id": new_job_id.strip(),
+                    "components": components_input.strip(),
+                    "max_sequence": int(max_seq_input),
+                    "min_panel_id": int(min_id_input),
+                    "max_panel_id": int(max_id_input)
+                }
+                supabase.table("job_configs").insert(job_data).execute()
+                st.success(f"✔️ '{new_job_id}' successfully added cloud database presets.")
                 st.rerun()
 
 # ------------------------------------------
@@ -196,56 +178,47 @@ with tab_read:
     st.header("Production Filters & Queries")
     f_col1, f_col2, f_col3 = st.columns(3)
     with f_col1: filter_job = st.multiselect("Filter by Job:", list(JOB_STRUCTURES.keys()))
-    with f_col2: filter_builder = st.text_input("Search by Builder Name:")
+    with f_col2: filter_builder = st.text_input("Search Builder Name:")
     with f_col3: filter_date = st.date_input("Filter from date:", value=None)
 
-    query = "SELECT id as 'Log ID', job_id as 'Job Number', component_type as 'Component Type', sequence_num as 'Sequence No', internal_panel_id as 'Panel ID', production_date as 'Date', builders as 'Builders', notes as 'Notes' FROM panels WHERE 1=1"
-    params = []
+    # Build cloud query execution
+    cloud_query = supabase.table("panels").select("*")
     
-    if filter_job:
-        query += f" AND job_id IN ({','.join(['?']*len(filter_job))})"
-        params.extend(filter_job)
-    if filter_builder:
-        query += " AND builders LIKE ?"
-        params.append(f"%{filter_builder}%")
-    if filter_date:
-        query += " AND production_date >= ?"
-        params.append(str(filter_date))
-        
-    query += " ORDER BY id DESC"
-
-    conn = sqlite3.connect(DB_NAME)
-    df = pd.read_sql_query(query, conn, params=params)
-    conn.close()
-
-    if not df.empty:
+    if filter_job: cloud_query = cloud_query.in_("job_id", filter_job)
+    if filter_builder: cloud_query = cloud_query.ilike("builders", f"%{filter_builder}%")
+    if filter_date: cloud_query = cloud_query.gte("production_date", str(filter_date))
+    
+    response = cloud_query.order("id", desc=True).execute()
+    
+    if response.data:
+        df = pd.DataFrame(response.data)
+        # Rename columns for localized presentation
+        df = df.rename(columns={
+            "id": "Log ID", "job_id": "Job Number", "component_type": "Component Type",
+            "sequence_num": "Sequence No", "internal_panel_id": "Panel ID",
+            "production_date": "Date", "builders": "Builders", "notes": "Notes"
+        })
         st.dataframe(df, use_container_width=True, hide_index=True)
         csv = df.to_csv(index=False).encode('utf-8')
         st.download_button("📥 Export Selection to CSV", data=csv, file_name="production_report.csv", mime="text/csv")
     else:
-        st.warning("No production records match your search criteria.")
+        st.warning("No production records match your cloud search criteria.")
 
 # ------------------------------------------
 # TAB 3: PERFORMANCE DASHBOARD (ANALYTICS)
 # ------------------------------------------
 with tab_dashboard:
     st.header("📈 Plant Performance Dashboard")
+    res = supabase.table("panels").select("job_id, component_type, production_date, builders").execute()
     
-    conn = sqlite3.connect(DB_NAME)
-    df_metrics = pd.read_sql_query("SELECT job_id, component_type, production_date, builders FROM panels", conn)
-    conn.close()
-    
-    if not df_metrics.empty:
-        total_units = len(df_metrics)
-        active_jobs = df_metrics['job_id'].nunique()
-        
+    if res.data:
+        df_metrics = pd.DataFrame(res.data)
         kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("Total Components Manufactured", f"{total_units} units")
-        kpi2.metric("Active Jobs Logged", f"{active_jobs}")
+        kpi1.metric("Total Components Manufactured", f"{len(df_metrics)} units")
+        kpi2.metric("Active Jobs Logged", f"{df_metrics['job_id'].nunique()}")
         kpi3.metric("Last Dynamic Sync", datetime.now().strftime("%m/%d/%Y %I:%M %p"))
         
         st.markdown("---")
-        
         g_col1, g_col2 = st.columns(2)
         with g_col1:
             st.subheader("📦 Production Volume by Job Number")
@@ -254,23 +227,19 @@ with tab_dashboard:
             
         with g_col2:
             st.subheader("📅 Daily Output Timeline")
-            df_time_grp = df_metrics.groupby('production_date').size().reset_index(name='Output Count')
-            df_time_grp = df_time_grp.sort_values(by='production_date')
+            df_time_grp = df_metrics.groupby('production_date').size().reset_index(name='Output Count').sort_values(by='production_date')
             st.line_chart(data=df_time_grp, x='production_date', y='Output Count', use_container_width=True)
             
         st.markdown("---")
         st.subheader("👤 Shop Floor Output by Builder")
-        
         builders_list = []
         for index, row in df_metrics.iterrows():
             names = [n.strip() for n in row['builders'].split(',') if n.strip()]
-            for name in names:
-                builders_list.append({'Employee': name, 'Units Logged': 1})
+            for name in names: builders_list.append({'Employee': name, 'Units Logged': 1})
                 
         df_builders_raw = pd.DataFrame(builders_list)
         if not df_builders_raw.empty:
-            df_builders_final = df_builders_raw.groupby('Employee').sum().reset_index()
-            df_builders_final = df_builders_final.sort_values(by='Units Logged', ascending=False)
+            df_builders_final = df_builders_raw.groupby('Employee').sum().reset_index().sort_values(by='Units Logged', ascending=False)
             st.bar_chart(data=df_builders_final, x='Employee', y='Units Logged', use_container_width=True)
     else:
         st.info("The Dashboard metrics will automatically populate as soon as you record your first entries.")
@@ -280,58 +249,45 @@ with tab_dashboard:
 # ------------------------------------------
 with tab_update_delete:
     st.header("Modify or Remove Production Records")
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, job_id, component_type, sequence_num FROM panels ORDER BY id DESC")
-    record_list = cursor.fetchall()
-    conn.close()
+    record_res = supabase.table("panels").select("id, job_id, component_type, sequence_num").order("id", desc=True).execute()
     
-    if record_list:
-        record_options = {r[0]: f"Log ID: {r[0]} | {r[1]} - {r[2]} #{r[3]}" for r in record_list}
+    if record_res.data:
+        record_options = {r["id"]: f"Log ID: {r['id']} | {r['job_id']} - {r['component_type']} #{r['sequence_num']}" for r in record_res.data}
         id_to_modify = st.selectbox("Select Target Record to Update/Delete:", list(record_options.keys()), format_func=lambda x: record_options[x])
         
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT job_id, component_type, sequence_num, internal_panel_id, production_date, builders, notes FROM panels WHERE id = ?", (id_to_modify,))
-        current_data = cursor.fetchone()
-        conn.close()
-        
-        if current_data:
+        current_res = supabase.table("panels").select("*").eq("id", id_to_modify).execute()
+        if current_res.data:
+            current_data = current_res.data[0]
             st.markdown("---")
             u_col1, u_col2 = st.columns(2)
             with u_col1:
-                u_job = st.selectbox("Job Number:", list(JOB_STRUCTURES.keys()), index=list(JOB_STRUCTURES.keys()).index(current_data[0]) if current_data[0] in JOB_STRUCTURES else 0, key="u_jr")
-                u_config = JOB_STRUCTURES[u_job] if u_job in JOB_STRUCTURES else {"components": [current_data[1]]}
-                idx_comp = u_config["components"].index(current_data[1]) if current_data[1] in u_config["components"] else 0
-                u_component = st.selectbox("Component Type:", u_config["components"], index=idx_comp, key="u_cr")
-                u_sequence = st.number_input("Sequence Number:", min_value=1, value=int(current_data[2]), key="u_sr")
-                u_panel_id = st.number_input("Internal Panel ID:", min_value=1, value=int(current_data[3]), key="u_pr")
+                u_job = st.selectbox("Job Number:", list(JOB_STRUCTURES.keys()), index=list(JOB_STRUCTURES.keys()).index(current_data["job_id"]) if current_data["job_id"] in JOB_STRUCTURES else 0)
+                u_config = JOB_STRUCTURES[u_job] if u_job in JOB_STRUCTURES else {"components": [current_data["component_type"]]}
+                idx_comp = u_config["components"].index(current_data["component_type"]) if current_data["component_type"] in u_config["components"] else 0
+                u_component = st.selectbox("Component Type:", u_config["components"], index=idx_comp)
+                u_sequence = st.number_input("Sequence Number:", min_value=1, value=int(current_data["sequence_num"]))
+                u_panel_id = st.number_input("Internal Panel ID:", min_value=1, value=int(current_data["internal_panel_id"]))
                 
             with u_col2:
-                u_date = st.date_input("Date:", value=datetime.strptime(current_data[4], "%Y-%m-%d"), key="u_dr")
-                u_builders = st.text_input("Builders:", value=current_data[5], key="u_br")
-                u_notes = st.text_area("Notes:", value=current_data[6], key="u_nr")
+                u_date = st.date_input("Date:", value=datetime.strptime(current_data["production_date"], "%Y-%m-%d"))
+                u_builders = st.text_input("Builders:", value=current_data["builders"])
+                u_notes = st.text_area("Notes:", value=current_data["notes"])
             
             btn_col1, btn_col2, _ = st.columns([1, 1, 2])
             with btn_col1:
                 if st.button("🔄 Update Record", type="secondary", use_container_width=True):
-                    conn = sqlite3.connect(DB_NAME)
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        UPDATE panels SET job_id=?, component_type=?, sequence_num=?, internal_panel_id=?, production_date=?, builders=?, notes=? WHERE id=?
-                    ''', (u_job, u_component, u_sequence, u_panel_id, str(u_date), u_builders, u_notes, id_to_modify))
-                    conn.commit()
-                    conn.close()
+                    updated_data = {
+                        "job_id": u_job, "component_type": u_component, "sequence_num": int(u_sequence),
+                        "internal_panel_id": int(u_panel_id), "production_date": str(u_date),
+                        "builders": u_builders, "notes": u_notes
+                    }
+                    supabase.table("panels").update(updated_data).eq("id", id_to_modify).execute()
                     st.success("Record updated successfully!")
                     st.rerun()
                     
             with btn_col2:
                 if st.button("🗑️ Delete Record", type="primary", use_container_width=True):
-                    conn = sqlite3.connect(DB_NAME)
-                    cursor = conn.cursor()
-                    cursor.execute("DELETE FROM panels WHERE id=?", (id_to_modify,))
-                    conn.commit()
-                    conn.close()
+                    supabase.table("panels").delete().eq("id", id_to_modify).execute()
                     st.warning(f"Record #{id_to_modify} has been permanently deleted.")
                     st.rerun()
     else:
