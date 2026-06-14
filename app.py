@@ -15,8 +15,8 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
     # Production: Read from Streamlit Secure Cloud Secrets
-    URL = st.secrets["https://lymbhtsaehqztqjlvgpb.supabase.co"]
-    KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5bWJodHNhZWhxenRxamx2Z3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODA5MjUsImV4cCI6MjA5Njk1NjkyNX0.ZlzwBWeHmxHIhjXJwkRcCQZv8OnNhXQPxiMCDUCuNwk"]
+    URL = st.secrets["SUPABASE_URL"]
+    KEY = st.secrets["SUPABASE_KEY"]
 else:
     # Local Development: Paste your keys here temporarily
     URL = "https://lymbhtsaehqztqjlvgpb.supabase.co"
