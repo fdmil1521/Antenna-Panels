@@ -7,12 +7,6 @@ from datetime import datetime
 # CLOUD DATABASE CONNECTION (SUPABASE)
 # ==========================================
 
-# 1. Secure entry for API Credentials
-# When deploying to Streamlit Cloud, store these in "Advanced Settings -> Secrets"
-# using the format:
-SUPABASE_URL = "https://lymbhtsaehqztqjlvgpb.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5bWJodHNhZWhxenRxamx2Z3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODA5MjUsImV4cCI6MjA5Njk1NjkyNX0.ZlzwBWeHmxHIhjXJwkRcCQZv8OnNhXQPxiMCDUCuNwk"
-
 if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
     # Production: Read from Streamlit Secure Cloud Secrets
     URL = st.secrets["SUPABASE_URL"]
@@ -32,6 +26,18 @@ try:
 except Exception as e:
     st.error("🚨 Database Connection Error. Check your API Credentials.")
     st.stop()
+
+# ==========================================
+# SESSION STATE INITIALIZATION (FOR FORM CLEARING)
+# ==========================================
+if "form_builders" not in st.session_state:
+    st.session_state.form_builders = ""
+if "form_notes" not in st.session_state:
+    st.session_state.form_notes = ""
+if "form_sequence" not in st.session_state:
+    st.session_state.form_sequence = 1
+if "form_panel_id" not in st.session_state:
+    st.session_state.form_panel_id = 1
 
 # ==========================================
 # DATA FETCHING & MUTATION FUNCTIONS
@@ -103,18 +109,18 @@ with tab_create:
                 if selected_component == "Top": max_seq = 4
                 elif selected_component == "Cap": max_seq = 1
                     
-                sequence = st.number_input(f"{selected_component} Number (1 to {max_seq}):", min_value=1, max_value=max_seq, value=1)
+                sequence = st.number_input(f"{selected_component} Number (1 to {max_seq}):", min_value=1, max_value=max_seq, value=st.session_state.form_sequence, key="input_seq")
                 
                 max_id = config["max_panel_id"]
                 if selected_job in ["Job #18", "Job #12"] and selected_component == "Top": max_id = 4
                 elif selected_job in ["Job #18", "Job #12"] and selected_component == "Cap": max_id = 1
                     
-                panel_id = st.number_input(f"Panel ID ({config['min_panel_id']} to {max_id}):", min_value=int(config['min_panel_id']), max_value=int(max_id), value=1)
+                panel_id = st.number_input(f"Panel ID ({config['min_panel_id']} to {max_id}):", min_value=int(config['min_panel_id']), max_value=int(max_id), value=st.session_state.form_panel_id, key="input_pid")
 
             with c2:
                 prod_date = st.date_input("Production Date:", datetime.now())
-                builders = st.text_input("Built By (Separate names with commas):", placeholder="e.g., John Doe, Mark Smith")
-                notes = st.text_area("Production Notes / Logs:")
+                builders = st.text_input("Built By (Separate names with commas):", value=st.session_state.form_builders, placeholder="e.g., John Doe, Mark Smith", key="input_builders")
+                notes = st.text_area("Production Notes / Logs:", value=st.session_state.form_notes, key="input_notes")
 
             if st.button("💾 Save Production Entry", type="primary"):
                 if not builders.strip():
@@ -130,7 +136,16 @@ with tab_create:
                         "notes": notes.strip()
                     }
                     supabase.table("panels").insert(data_to_insert).execute()
-                    st.success(f"✔️ Registered {selected_component} #{sequence} for {selected_job}.")
+                    
+                    # 1. Alerta flotante (Toast)
+                    st.toast(f"✔️ Registered {selected_component} #{sequence} for {selected_job}.", icon="🚀")
+                    
+                    # 2. Limpieza de campos mediante Session State
+                    st.session_state.form_builders = ""
+                    st.session_state.form_notes = ""
+                    st.session_state.form_sequence = 1
+                    st.session_state.form_panel_id = 1
+                    
                     st.rerun()
         else:
             st.info("💡 Pro Tip: If this is your first load, please create the 'job_configs' and 'panels' tables in your Supabase SQL Editor.")
@@ -168,7 +183,7 @@ with tab_create:
                     "max_panel_id": int(max_id_input)
                 }
                 supabase.table("job_configs").insert(job_data).execute()
-                st.success(f"✔️ '{new_job_id}' successfully added cloud database presets.")
+                st.toast(f"✔️ '{new_job_id}' successfully added cloud database presets.", icon="⚙️")
                 st.rerun()
 
 # ------------------------------------------
@@ -282,13 +297,13 @@ with tab_update_delete:
                         "builders": u_builders, "notes": u_notes
                     }
                     supabase.table("panels").update(updated_data).eq("id", id_to_modify).execute()
-                    st.success("Record updated successfully!")
+                    st.toast(f"🔄 Record #{id_to_modify} updated successfully!", icon="📝")
                     st.rerun()
                     
             with btn_col2:
                 if st.button("🗑️ Delete Record", type="primary", use_container_width=True):
                     supabase.table("panels").delete().eq("id", id_to_modify).execute()
-                    st.warning(f"Record #{id_to_modify} has been permanently deleted.")
+                    st.toast(f"🗑️ Record #{id_to_modify} has been permanently deleted.", icon="💥")
                     st.rerun()
     else:
         st.info("No logs currently available for modification.")
