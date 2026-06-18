@@ -2,21 +2,19 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
+import time
 
 # ==========================================
 # CLOUD DATABASE CONNECTION (SUPABASE)
 # ==========================================
 
 if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
-    # Production: Read from Streamlit Secure Cloud Secrets
     URL = st.secrets["SUPABASE_URL"]
     KEY = st.secrets["SUPABASE_KEY"]
 else:
-    # Local Development: Paste your keys here temporarily
     URL = "https://lymbhtsaehqztqjlvgpb.supabase.co"
     KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5bWJodHNhZWhxenRxamx2Z3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODA5MjUsImV4cCI6MjA5Njk1NjkyNX0.ZlzwBWeHmxHIhjXJwkRcCQZv8OnNhXQPxiMCDUCuNwk"
 
-# Initialize Cloud Connection
 @st.cache_resource
 def get_supabase_client() -> Client:
     return create_client(URL, KEY)
@@ -28,7 +26,7 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# SESSION STATE INITIALIZATION (FOR FORM CLEARING)
+# SESSION STATE INITIALIZATION & HELPERS
 # ==========================================
 if "form_builders" not in st.session_state:
     st.session_state.form_builders = ""
@@ -39,17 +37,32 @@ if "form_sequence" not in st.session_state:
 if "form_panel_id" not in st.session_state:
     st.session_state.form_panel_id = 1
 
-# ==========================================
-# DATA FETCHING & MUTATION FUNCTIONS
-# ==========================================
+# Variables para persistir alertas a través del rerun
+if "toast_msg" not in st.session_state:
+    st.session_state.toast_msg = None
+if "toast_icon" not in st.session_state:
+    st.session_state.toast_icon = None
 
+def clear_form_fields():
+    st.session_state.form_builders = ""
+    st.session_state.form_notes = ""
+    st.session_state.form_sequence = 1
+    st.session_state.form_panel_id = 1
+
+# Mostrar alertas pendientes si existen tras el refresco
+if st.session_state.toast_msg:
+    st.toast(st.session_state.toast_msg, icon=st.session_state.toast_icon)
+    st.session_state.toast_msg = None
+    st.session_state.toast_icon = None
+
+# ==========================================
+# DATA FETCHING FUNCTIONS
+# ==========================================
 def load_job_structures():
-    """Loads job configurations dynamically from Cloud PostgreSQL."""
     try:
         response = supabase.table("job_configs").select("*").execute()
         rows = response.data
         
-        # If cloud database is brand new, seed initial data
         if not rows:
             default_jobs = [
                 {"job_id": "Job #68", "components": "Panel, Subpanel", "max_sequence": 10, "min_panel_id": 1, "max_panel_id": 45},
@@ -72,7 +85,6 @@ def load_job_structures():
             }
         return structure
     except Exception:
-        st.warning("⚠️ Database tables are initializing or need to be created in your Supabase dashboard.")
         return {}
 
 JOB_STRUCTURES = load_job_structures()
@@ -126,27 +138,33 @@ with tab_create:
                 if not builders.strip():
                     st.error("⚠️ The 'Built By' field is required.")
                 else:
-                    data_to_insert = {
-                        "job_id": selected_job,
-                        "component_type": selected_component,
-                        "sequence_num": int(sequence),
-                        "internal_panel_id": int(panel_id),
-                        "production_date": str(prod_date),
-                        "builders": builders.strip(),
-                        "notes": notes.strip()
-                    }
-                    supabase.table("panels").insert(data_to_insert).execute()
+                    # EVITAR DUPLICADOS: Verificar si la combinación ya existe en Supabase
+                    duplicate_check = supabase.table("panels").select("id")\
+                        .eq("job_id", selected_job)\
+                        .eq("component_type", selected_component)\
+                        .eq("sequence_num", int(sequence))\
+                        .eq("internal_panel_id", int(panel_id))\
+                        .execute()
                     
-                    # 1. Alerta flotante (Toast)
-                    st.toast(f"✔️ Registered {selected_component} #{sequence} for {selected_job}.", icon="🚀")
-                    
-                    # 2. Limpieza de campos mediante Session State
-                    st.session_state.form_builders = ""
-                    st.session_state.form_notes = ""
-                    st.session_state.form_sequence = 1
-                    st.session_state.form_panel_id = 1
-                    
-                    st.rerun()
+                    if duplicate_check.data:
+                        st.error(f"🚨 ERROR: A record for {selected_component} #{sequence} with Panel ID {panel_id} under {selected_job} already exists in the database. Duplicates are not allowed.")
+                    else:
+                        data_to_insert = {
+                            "job_id": selected_job,
+                            "component_type": selected_component,
+                            "sequence_num": int(sequence),
+                            "internal_panel_id": int(panel_id),
+                            "production_date": str(prod_date),
+                            "builders": builders.strip(),
+                            "notes": notes.strip()
+                        }
+                        supabase.table("panels").insert(data_to_insert).execute()
+                        
+                        # Guardar estado de la alerta y limpiar los campos
+                        st.session_state.toast_msg = f"✔️ Registered {selected_component} #{sequence} for {selected_job}."
+                        st.session_state.toast_icon = "🚀"
+                        clear_form_fields()
+                        st.rerun()
         else:
             st.info("💡 Pro Tip: If this is your first load, please create the 'job_configs' and 'panels' tables in your Supabase SQL Editor.")
 
@@ -183,7 +201,8 @@ with tab_create:
                     "max_panel_id": int(max_id_input)
                 }
                 supabase.table("job_configs").insert(job_data).execute()
-                st.toast(f"✔️ '{new_job_id}' successfully added cloud database presets.", icon="⚙️")
+                st.session_state.toast_msg = f"✔️ '{new_job_id}' successfully added to presets."
+                st.session_state.toast_icon = "⚙️"
                 st.rerun()
 
 # ------------------------------------------
@@ -196,7 +215,6 @@ with tab_read:
     with f_col2: filter_builder = st.text_input("Search Builder Name:")
     with f_col3: filter_date = st.date_input("Filter from date:", value=None)
 
-    # Build cloud query execution
     cloud_query = supabase.table("panels").select("*")
     
     if filter_job: cloud_query = cloud_query.in_("job_id", filter_job)
@@ -207,7 +225,6 @@ with tab_read:
     
     if response.data:
         df = pd.DataFrame(response.data)
-        # Rename columns for localized presentation
         df = df.rename(columns={
             "id": "Log ID", "job_id": "Job Number", "component_type": "Component Type",
             "sequence_num": "Sequence No", "internal_panel_id": "Panel ID",
@@ -291,19 +308,32 @@ with tab_update_delete:
             btn_col1, btn_col2, _ = st.columns([1, 1, 2])
             with btn_col1:
                 if st.button("🔄 Update Record", type="secondary", use_container_width=True):
-                    updated_data = {
-                        "job_id": u_job, "component_type": u_component, "sequence_num": int(u_sequence),
-                        "internal_panel_id": int(u_panel_id), "production_date": str(u_date),
-                        "builders": u_builders, "notes": u_notes
-                    }
-                    supabase.table("panels").update(updated_data).eq("id", id_to_modify).execute()
-                    st.toast(f"🔄 Record #{id_to_modify} updated successfully!", icon="📝")
-                    st.rerun()
+                    # Al modificar, verificar que no cause conflicto de duplicados con otro registro existente
+                    dup_mod = supabase.table("panels").select("id")\
+                        .eq("job_id", u_job)\
+                        .eq("component_type", u_component)\
+                        .eq("sequence_num", int(u_sequence))\
+                        .eq("internal_panel_id", int(u_panel_id))\
+                        .neq("id", id_to_modify).execute()
+                    
+                    if dup_mod.data:
+                        st.error("🚨 Cannot update: Another record already contains this exact layout combination.")
+                    else:
+                        updated_data = {
+                            "job_id": u_job, "component_type": u_component, "sequence_num": int(u_sequence),
+                            "internal_panel_id": int(u_panel_id), "production_date": str(u_date),
+                            "builders": u_builders, "notes": u_notes
+                        }
+                        supabase.table("panels").update(updated_data).eq("id", id_to_modify).execute()
+                        st.session_state.toast_msg = f"🔄 Record #{id_to_modify} updated successfully!"
+                        st.session_state.toast_icon = "📝"
+                        st.rerun()
                     
             with btn_col2:
                 if st.button("🗑️ Delete Record", type="primary", use_container_width=True):
                     supabase.table("panels").delete().eq("id", id_to_modify).execute()
-                    st.toast(f"🗑️ Record #{id_to_modify} has been permanently deleted.", icon="💥")
+                    st.session_state.toast_msg = f"🗑️ Record #{id_to_modify} has been permanently deleted."
+                    st.session_state.toast_icon = "💥"
                     st.rerun()
     else:
         st.info("No logs currently available for modification.")
