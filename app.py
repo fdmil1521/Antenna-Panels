@@ -196,12 +196,11 @@ with tab_create:
                 st.rerun()
 
 # ------------------------------------------
-# TAB 2: SEARCH & MANAGE LOGS (COMPATIBLE & INTUITIVO)
+# TAB 2: SEARCH & MANAGE LOGS
 # ------------------------------------------
 with tab_read:
     st.header("Production History")
     
-    # Cuadro amarillo de confirmación de borrado si se seleccionó una casilla
     if st.session_state.delete_confirm_id:
         st.warning(f"⚠️ Are you sure you want to delete Log ID #{st.session_state.delete_confirm_id} permanently?")
         c_b1, c_b2 = st.columns(2)
@@ -217,7 +216,6 @@ with tab_read:
                 st.session_state.delete_confirm_id = None
                 st.rerun()
 
-    # Formulario dinámico de edición si se seleccionó una casilla
     if st.session_state.editing_id:
         st.markdown(f"### 📝 Editing Record ID #{st.session_state.editing_id}")
         item_res = supabase.table("panels").select("*").eq("id", st.session_state.editing_id).execute()
@@ -258,7 +256,6 @@ with tab_read:
                     st.rerun()
         st.markdown("---")
 
-    # Filtros de búsqueda comunes
     f_col1, f_col2, f_col3 = st.columns(3)
     with f_col1: filter_job = st.multiselect("Filter by Job Number:", list(JOB_STRUCTURES.keys()), key="f_job")
     with f_col2: filter_builder = st.text_input("Search Builder Name:", key="f_builder")
@@ -274,7 +271,7 @@ with tab_read:
     if response.data:
         df_origin = pd.DataFrame(response.data)
         
-        # Agregamos las dos columnas booleanas (se verán como Checkboxes interactivos de selección)
+        # Columnas booleanas asignadas para renderizar los checkboxes de acción
         df_origin["Edit Row"] = False
         df_origin["Delete Row"] = False
         
@@ -291,32 +288,30 @@ with tab_read:
         }
         df_display = df_display.rename(columns=col_mapping)
         
-        # El data editor renderiza los checkboxes nativos de forma compatible con cualquier versión
         edited_table = st.data_editor(
             df_display,
             use_container_width=True,
             hide_index=True,
-            # Bloqueamos el resto de las celdas para que solo puedan interactuar con los checkboxes de acción
             disabled=["Log ID", "Job Number", "Component Type", "Sequence No", "Panel ID", "Date", "Builders", "Notes"],
             key="actions_table"
         )
         
-        # Captura si el usuario marcó un checkbox
         state_editor = st.session_state.actions_table
         if state_editor and "edited_rows" in state_editor:
             for row_idx, changes in state_editor["edited_rows"].items():
                 target_id = int(df_display.iloc[row_idx]["Log ID"])
                 
-                # Si marca el checkbox de Editar, activa el formulario arriba
                 if changes.get("📝 Edit") == True:
                     st.session_state.editing_id = target_id
                     st.rerun()
-                # Si marca el checkbox de Eliminar, activa la confirmación arriba
                 elif changes.get("🗑️ Delete") == True:
                     st.session_state.delete_confirm_id = target_id
                     st.rerun()
 
-        csv = df_display.to_csv(index=False).encode('utf-8')
+        # EXPORTACIÓN LIMPIA: Filtramos y quitamos las columnas visuales de control ("📝 Edit" y "🗑️ Delete")
+        df_clean_export = edited_table.drop(columns=["📝 Edit", "🗑️ Delete"], errors="ignore")
+        csv = df_clean_export.to_csv(index=False).encode('utf-8')
+        
         st.download_button("📥 Export Current View to CSV", data=csv, file_name="production_report.csv", mime="text/csv")
     else:
         st.warning("No production records match your cloud search criteria.")
