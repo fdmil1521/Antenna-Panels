@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
-import time
 
 # ==========================================
 # CLOUD DATABASE CONNECTION (SUPABASE)
@@ -26,22 +25,15 @@ except Exception as e:
     st.stop()
 
 # ==========================================
-# SESSION STATE INITIALIZATION & HELPERS
+# SESSION STATE INITIALIZATION & ALERTS
 # ==========================================
-if "form_builders" not in st.session_state:
-    st.session_state.form_builders = ""
-if "form_notes" not in st.session_state:
-    st.session_state.form_notes = ""
-if "form_sequence" not in st.session_state:
-    st.session_state.form_sequence = 1
-if "form_panel_id" not in st.session_state:
-    st.session_state.form_panel_id = 1
+if "form_builders" not in st.session_state: st.session_state.form_builders = ""
+if "form_notes" not in st.session_state: st.session_state.form_notes = ""
+if "form_sequence" not in st.session_state: st.session_state.form_sequence = 1
+if "form_panel_id" not in st.session_state: st.session_state.form_panel_id = 1
 
-# Variables para persistir alertas a través del rerun
-if "toast_msg" not in st.session_state:
-    st.session_state.toast_msg = None
-if "toast_icon" not in st.session_state:
-    st.session_state.toast_icon = None
+if "toast_msg" not in st.session_state: st.session_state.toast_msg = None
+if "toast_icon" not in st.session_state: st.session_state.toast_icon = None
 
 def clear_form_fields():
     st.session_state.form_builders = ""
@@ -49,7 +41,6 @@ def clear_form_fields():
     st.session_state.form_sequence = 1
     st.session_state.form_panel_id = 1
 
-# Mostrar alertas pendientes si existen tras el refresco
 if st.session_state.toast_msg:
     st.toast(st.session_state.toast_msg, icon=st.session_state.toast_icon)
     st.session_state.toast_msg = None
@@ -95,15 +86,15 @@ JOB_STRUCTURES = load_job_structures()
 st.set_page_config(page_title="Cloud Panel Production Control", layout="wide")
 st.title("🏭 Cloud Production Management System - Antenna Panels")
 
-tab_create, tab_read, tab_dashboard, tab_update_delete = st.tabs([
+# Rediseñado a solo 3 pestañas para mejorar flujo CRUD unificado
+tab_create, tab_read, tab_dashboard = st.tabs([
     "➕ Register / Setup Batches", 
-    "🔍 Search & Logs (Read)", 
-    "📊 Performance Dashboard",
-    "⚙️ Modify / Delete (Update/Delete)"
+    "🔍 Search, Update & Delete Logs", 
+    "📊 Performance Dashboard"
 ])
 
 # ------------------------------------------
-# TAB 1: REGISTER PANELES & NEW JOBS (CREATE)
+# TAB 1: REGISTER PANELS & NEW JOBS (CREATE)
 # ------------------------------------------
 with tab_create:
     col_log, col_new_job = st.columns([1.4, 0.9])
@@ -138,7 +129,6 @@ with tab_create:
                 if not builders.strip():
                     st.error("⚠️ The 'Built By' field is required.")
                 else:
-                    # EVITAR DUPLICADOS: Verificar si la combinación ya existe en Supabase
                     duplicate_check = supabase.table("panels").select("id")\
                         .eq("job_id", selected_job)\
                         .eq("component_type", selected_component)\
@@ -147,7 +137,7 @@ with tab_create:
                         .execute()
                     
                     if duplicate_check.data:
-                        st.error(f"🚨 ERROR: A record for {selected_component} #{sequence} with Panel ID {panel_id} under {selected_job} already exists in the database. Duplicates are not allowed.")
+                        st.error(f"🚨 ERROR: A record for {selected_component} #{sequence} with Panel ID {panel_id} under {selected_job} already exists.")
                     else:
                         data_to_insert = {
                             "job_id": selected_job,
@@ -160,13 +150,10 @@ with tab_create:
                         }
                         supabase.table("panels").insert(data_to_insert).execute()
                         
-                        # Guardar estado de la alerta y limpiar los campos
                         st.session_state.toast_msg = f"✔️ Registered {selected_component} #{sequence} for {selected_job}."
                         st.session_state.toast_icon = "🚀"
                         clear_form_fields()
                         st.rerun()
-        else:
-            st.info("💡 Pro Tip: If this is your first load, please create the 'job_configs' and 'panels' tables in your Supabase SQL Editor.")
 
     with col_new_job:
         st.header("🛠️ Configure New Job Number")
@@ -191,7 +178,7 @@ with tab_create:
             if not new_job_id.strip() or not components_input.strip():
                 st.error("⚠️ All metadata fields are mandatory.")
             elif new_job_id in JOB_STRUCTURES.keys():
-                st.error("⚠️ This Job Number already exists in the cloud database.")
+                st.error("⚠️ This Job Number already exists.")
             else:
                 job_data = {
                     "job_id": new_job_id.strip(),
@@ -201,22 +188,23 @@ with tab_create:
                     "max_panel_id": int(max_id_input)
                 }
                 supabase.table("job_configs").insert(job_data).execute()
-                st.session_state.toast_msg = f"✔️ '{new_job_id}' successfully added to presets."
+                st.session_state.toast_msg = f"✔️ '{new_job_id}' successfully added."
                 st.session_state.toast_icon = "⚙️"
                 st.rerun()
 
 # ------------------------------------------
-# TAB 2: SEARCH & LOGS (READ)
+# TAB 2: SEARCH, UPDATE & DELETE LOGS (CRUD UNIFICADO)
 # ------------------------------------------
 with tab_read:
-    st.header("Production Filters & Queries")
+    st.header("Production Logs Management")
+    st.caption("💡 Tip: Double-click any cell below to EDIT. To DELETE, click the left margin of a row and hit 'Delete' key or click the trash icon. Click 'Apply Changes' when done.")
+    
     f_col1, f_col2, f_col3 = st.columns(3)
-    with f_col1: filter_job = st.multiselect("Filter by Job:", list(JOB_STRUCTURES.keys()))
-    with f_col2: filter_builder = st.text_input("Search Builder Name:")
-    with f_col3: filter_date = st.date_input("Filter from date:", value=None)
+    with f_col1: filter_job = st.multiselect("Filter by Job:", list(JOB_STRUCTURES.keys()), key="f_job")
+    with f_col2: filter_builder = st.text_input("Search Builder Name:", key="f_builder")
+    with f_col3: filter_date = st.date_input("Filter from date:", value=None, key="f_date")
 
     cloud_query = supabase.table("panels").select("*")
-    
     if filter_job: cloud_query = cloud_query.in_("job_id", filter_job)
     if filter_builder: cloud_query = cloud_query.ilike("builders", f"%{filter_builder}%")
     if filter_date: cloud_query = cloud_query.gte("production_date", str(filter_date))
@@ -224,15 +212,88 @@ with tab_read:
     response = cloud_query.order("id", desc=True).execute()
     
     if response.data:
-        df = pd.DataFrame(response.data)
-        df = df.rename(columns={
+        df_origin = pd.DataFrame(response.data)
+        
+        # Mapeo estético de columnas visibles para el operador
+        col_mapping = {
             "id": "Log ID", "job_id": "Job Number", "component_type": "Component Type",
             "sequence_num": "Sequence No", "internal_panel_id": "Panel ID",
             "production_date": "Date", "builders": "Builders", "notes": "Notes"
-        })
-        st.dataframe(df, use_container_width=True, hide_index=True)
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Export Selection to CSV", data=csv, file_name="production_report.csv", mime="text/csv")
+        }
+        df_display = df_origin.rename(columns=col_mapping)
+        
+        # El Data Editor interactivo actúa como Excel con opción Update/Delete integrada
+        edited_df = st.data_editor(
+            df_display, 
+            use_container_width=True, 
+            hide_index=True,
+            num_rows="dynamic", # Habilita la eliminación nativa de filas
+            disabled=["Log ID"], # Bloquea la llave primaria ID para evitar daños
+            key="production_editor"
+        )
+        
+        # Procesar cambios cuando el usuario altera la tabla interactiva
+        if st.button("💾 Apply Database Changes", type="primary"):
+            # Detectar filas eliminadas comparando IDs
+            original_ids = set(df_display["Log ID"].tolist())
+            edited_ids = set(edited_df["Log ID"].tolist())
+            deleted_ids = original_ids - edited_ids
+            
+            changes_detected = False
+            
+            # 1. Ejecutar Eliminaciones en Supabase
+            if deleted_ids:
+                for del_id in deleted_ids:
+                    supabase.table("panels").delete().eq("id", int(del_id)).execute()
+                st.session_state.toast_msg = f"🗑️ Successfully deleted {len(deleted_ids)} record(s)."
+                st.session_state.toast_icon = "💥"
+                changes_detected = True
+            
+            # 2. Ejecutar Actualizaciones (Updates) buscando discrepancias fila por fila
+            # Invertimos el mapeo para devolver los datos al formato nativo de Supabase
+            inv_mapping = {v: k for k, v in col_mapping.items()}
+            df_edited_native = edited_df.rename(columns=inv_mapping)
+            
+            for _, row in df_edited_native.iterrows():
+                row_id = int(row["id"])
+                # Extraer la fila original correspondiente para comparar
+                orig_row = df_origin[df_origin["id"] == row_id]
+                
+                if not orig_row.empty:
+                    orig_row = orig_row.iloc[0]
+                    # Si algo cambió en la fila, actualizamos
+                    if not row.equals(orig_row):
+                        # Evitar causar duplicados por mala edición
+                        dup_mod = supabase.table("panels").select("id")\
+                            .eq("job_id", row["job_id"])\
+                            .eq("component_type", row["component_type"])\
+                            .eq("sequence_num", int(row["sequence_num"]))\
+                            .eq("internal_panel_id", int(row["internal_panel_id"]))\
+                            .neq("id", row_id).execute()
+                        
+                        if dup_mod.data:
+                            st.error(f"🚨 Cannot update Log ID {row_id}: This layout combination already exists.")
+                            continue
+                            
+                        updated_fields = {
+                            "job_id": row["job_id"], "component_type": row["component_type"], 
+                            "sequence_num": int(row["sequence_num"]), "internal_panel_id": int(row["internal_panel_id"]), 
+                            "production_date": str(row["production_date"]), "builders": str(row["builders"]), 
+                            "notes": str(row["notes"])
+                        }
+                        supabase.table("panels").update(updated_fields).eq("id", row_id).execute()
+                        changes_detected = True
+                        st.session_state.toast_msg = "🔄 Production database logs successfully synchronized!"
+                        st.session_state.toast_icon = "📝"
+            
+            if changes_detected:
+                st.rerun()
+            else:
+                st.info("No modifications were detected to submit.")
+                
+        # Exportador CSV tradicional
+        csv = edited_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Export Current View to CSV", data=csv, file_name="production_report.csv", mime="text/csv")
     else:
         st.warning("No production records match your cloud search criteria.")
 
@@ -275,65 +336,3 @@ with tab_dashboard:
             st.bar_chart(data=df_builders_final, x='Employee', y='Units Logged', use_container_width=True)
     else:
         st.info("The Dashboard metrics will automatically populate as soon as you record your first entries.")
-
-# ------------------------------------------
-# TAB 4: MODIFY / DELETE (UPDATE/DELETE)
-# ------------------------------------------
-with tab_update_delete:
-    st.header("Modify or Remove Production Records")
-    record_res = supabase.table("panels").select("id, job_id, component_type, sequence_num").order("id", desc=True).execute()
-    
-    if record_res.data:
-        record_options = {r["id"]: f"Log ID: {r['id']} | {r['job_id']} - {r['component_type']} #{r['sequence_num']}" for r in record_res.data}
-        id_to_modify = st.selectbox("Select Target Record to Update/Delete:", list(record_options.keys()), format_func=lambda x: record_options[x])
-        
-        current_res = supabase.table("panels").select("*").eq("id", id_to_modify).execute()
-        if current_res.data:
-            current_data = current_res.data[0]
-            st.markdown("---")
-            u_col1, u_col2 = st.columns(2)
-            with u_col1:
-                u_job = st.selectbox("Job Number:", list(JOB_STRUCTURES.keys()), index=list(JOB_STRUCTURES.keys()).index(current_data["job_id"]) if current_data["job_id"] in JOB_STRUCTURES else 0)
-                u_config = JOB_STRUCTURES[u_job] if u_job in JOB_STRUCTURES else {"components": [current_data["component_type"]]}
-                idx_comp = u_config["components"].index(current_data["component_type"]) if current_data["component_type"] in u_config["components"] else 0
-                u_component = st.selectbox("Component Type:", u_config["components"], index=idx_comp)
-                u_sequence = st.number_input("Sequence Number:", min_value=1, value=int(current_data["sequence_num"]))
-                u_panel_id = st.number_input("Internal Panel ID:", min_value=1, value=int(current_data["internal_panel_id"]))
-                
-            with u_col2:
-                u_date = st.date_input("Date:", value=datetime.strptime(current_data["production_date"], "%Y-%m-%d"))
-                u_builders = st.text_input("Builders:", value=current_data["builders"])
-                u_notes = st.text_area("Notes:", value=current_data["notes"])
-            
-            btn_col1, btn_col2, _ = st.columns([1, 1, 2])
-            with btn_col1:
-                if st.button("🔄 Update Record", type="secondary", use_container_width=True):
-                    # Al modificar, verificar que no cause conflicto de duplicados con otro registro existente
-                    dup_mod = supabase.table("panels").select("id")\
-                        .eq("job_id", u_job)\
-                        .eq("component_type", u_component)\
-                        .eq("sequence_num", int(u_sequence))\
-                        .eq("internal_panel_id", int(u_panel_id))\
-                        .neq("id", id_to_modify).execute()
-                    
-                    if dup_mod.data:
-                        st.error("🚨 Cannot update: Another record already contains this exact layout combination.")
-                    else:
-                        updated_data = {
-                            "job_id": u_job, "component_type": u_component, "sequence_num": int(u_sequence),
-                            "internal_panel_id": int(u_panel_id), "production_date": str(u_date),
-                            "builders": u_builders, "notes": u_notes
-                        }
-                        supabase.table("panels").update(updated_data).eq("id", id_to_modify).execute()
-                        st.session_state.toast_msg = f"🔄 Record #{id_to_modify} updated successfully!"
-                        st.session_state.toast_icon = "📝"
-                        st.rerun()
-                    
-            with btn_col2:
-                if st.button("🗑️ Delete Record", type="primary", use_container_width=True):
-                    supabase.table("panels").delete().eq("id", id_to_modify).execute()
-                    st.session_state.toast_msg = f"🗑️ Record #{id_to_modify} has been permanently deleted."
-                    st.session_state.toast_icon = "💥"
-                    st.rerun()
-    else:
-        st.info("No logs currently available for modification.")
