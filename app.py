@@ -32,7 +32,7 @@ if "form_notes" not in st.session_state: st.session_state.form_notes = ""
 if "form_sequence" not in st.session_state: st.session_state.form_sequence = 1
 if "form_panel_id" not in st.session_state: st.session_state.form_panel_id = 1
 
-# Estados para controlar la edición activa
+# Estados para controlar la edición o eliminación activa
 if "editing_id" not in st.session_state: st.session_state.editing_id = None
 if "delete_confirm_id" not in st.session_state: st.session_state.delete_confirm_id = None
 
@@ -196,12 +196,12 @@ with tab_create:
                 st.rerun()
 
 # ------------------------------------------
-# TAB 2: SEARCH & MANAGE LOGS (WITH VISUAL BUTTONS)
+# TAB 2: SEARCH & MANAGE LOGS (COMPATIBLE & INTUITIVO)
 # ------------------------------------------
 with tab_read:
     st.header("Production History")
     
-    # Mensajes de confirmación e interfaz flotante de edición
+    # Cuadro amarillo de confirmación de borrado si se seleccionó una casilla
     if st.session_state.delete_confirm_id:
         st.warning(f"⚠️ Are you sure you want to delete Log ID #{st.session_state.delete_confirm_id} permanently?")
         c_b1, c_b2 = st.columns(2)
@@ -217,6 +217,7 @@ with tab_read:
                 st.session_state.delete_confirm_id = None
                 st.rerun()
 
+    # Formulario dinámico de edición si se seleccionó una casilla
     if st.session_state.editing_id:
         st.markdown(f"### 📝 Editing Record ID #{st.session_state.editing_id}")
         item_res = supabase.table("panels").select("*").eq("id", st.session_state.editing_id).execute()
@@ -238,7 +239,6 @@ with tab_read:
             eb1, eb2 = st.columns(2)
             with eb1:
                 if st.button("💾 Save Changes", type="primary", use_container_width=True):
-                    # Validación contra duplicados en edición
                     dup_check = supabase.table("panels").select("id").eq("job_id", e_job).eq("component_type", e_comp).eq("sequence_num", int(e_seq)).eq("internal_panel_id", int(e_pid)).neq("id", st.session_state.editing_id).execute()
                     if dup_check.data:
                         st.error("🚨 Layout conflict: A matching data row already exists in the cloud.")
@@ -258,7 +258,7 @@ with tab_read:
                     st.rerun()
         st.markdown("---")
 
-    # Filtros de búsqueda tradicionales
+    # Filtros de búsqueda comunes
     f_col1, f_col2, f_col3 = st.columns(3)
     with f_col1: filter_job = st.multiselect("Filter by Job Number:", list(JOB_STRUCTURES.keys()), key="f_job")
     with f_col2: filter_builder = st.text_input("Search Builder Name:", key="f_builder")
@@ -274,33 +274,89 @@ with tab_read:
     if response.data:
         df_origin = pd.DataFrame(response.data)
         
-        # Agregamos las dos columnas de control visuales explícitas
-        df_origin["Update"] = "📝 Edit"
-        df_origin["Delete"] = "🗑️ Delete"
+        # Agregamos las dos columnas booleanas (se verán como Checkboxes interactivos de selección)
+        df_origin["Edit Row"] = False
+        df_origin["Delete Row"] = False
         
-        # Reordenamos estéticamente las columnas
         df_display = df_origin[[
             "id", "job_id", "component_type", "sequence_num", 
-            "internal_panel_id", "production_date", "builders", "notes", "Update", "Delete"
+            "internal_panel_id", "production_date", "builders", "notes", "Edit Row", "Delete Row"
         ]]
         
         col_mapping = {
             "id": "Log ID", "job_id": "Job Number", "component_type": "Component Type",
             "sequence_num": "Sequence No", "internal_panel_id": "Panel ID",
             "production_date": "Date", "builders": "Builders", "notes": "Notes",
-            "Update": "Modify Action", "Delete": "Remove Action"
+            "Edit Row": "📝 Edit", "Delete Row": "🗑️ Delete"
         }
         df_display = df_display.rename(columns=col_mapping)
         
-        # El editor interactivo ahora renderiza botones reales en las celdas asignadas
-        event = st.data_editor(
+        # El data editor renderiza los checkboxes nativos de forma compatible con cualquier versión
+        edited_table = st.data_editor(
             df_display,
             use_container_width=True,
             hide_index=True,
-            disabled=list(col_mapping.values()), # Deshabilita la escritura de texto directo
-            column_config={
-                "Modify Action": st.column_config.ButtonColumn(width="small"),
-                "Remove Action": st.column_config.ButtonColumn(width="small")
-            },
+            # Bloqueamos el resto de las celdas para que solo puedan interactuar con los checkboxes de acción
+            disabled=["Log ID", "Job Number", "Component Type", "Sequence No", "Panel ID", "Date", "Builders", "Notes"],
             key="actions_table"
         )
+        
+        # Captura si el usuario marcó un checkbox
+        state_editor = st.session_state.actions_table
+        if state_editor and "edited_rows" in state_editor:
+            for row_idx, changes in state_editor["edited_rows"].items():
+                target_id = int(df_display.iloc[row_idx]["Log ID"])
+                
+                # Si marca el checkbox de Editar, activa el formulario arriba
+                if changes.get("📝 Edit") == True:
+                    st.session_state.editing_id = target_id
+                    st.rerun()
+                # Si marca el checkbox de Eliminar, activa la confirmación arriba
+                elif changes.get("🗑️ Delete") == True:
+                    st.session_state.delete_confirm_id = target_id
+                    st.rerun()
+
+        csv = df_display.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Export Current View to CSV", data=csv, file_name="production_report.csv", mime="text/csv")
+    else:
+        st.warning("No production records match your cloud search criteria.")
+
+# ------------------------------------------
+# TAB 3: PERFORMANCE DASHBOARD (ANALYTICS)
+# ------------------------------------------
+with tab_dashboard:
+    st.header("📈 Plant Performance Dashboard")
+    res = supabase.table("panels").select("job_id, component_type, production_date, builders").execute()
+    
+    if res.data:
+        df_metrics = pd.DataFrame(res.data)
+        kpi1, kpi2, kpi3 = st.columns(3)
+        kpi1.metric("Total Components Manufactured", f"{len(df_metrics)} units")
+        kpi2.metric("Active Jobs Logged", f"{df_metrics['job_id'].nunique()}")
+        kpi3.metric("Last Dynamic Sync", datetime.now().strftime("%m/%d/%Y %I:%M %p"))
+        
+        st.markdown("---")
+        g_col1, g_col2 = st.columns(2)
+        with g_col1:
+            st.subheader("📦 Production Volume by Job Number")
+            df_job_grp = df_metrics.groupby('job_id').size().reset_index(name='Units Produced')
+            st.bar_chart(data=df_job_grp, x='job_id', y='Units Produced', use_container_width=True)
+            
+        with g_col2:
+            st.subheader("📅 Daily Output Timeline")
+            df_time_grp = df_metrics.groupby('production_date').size().reset_index(name='Output Count').sort_values(by='production_date')
+            st.line_chart(data=df_time_grp, x='production_date', y='Output Count', use_container_width=True)
+            
+        st.markdown("---")
+        st.subheader("👤 Shop Floor Output by Builder")
+        builders_list = []
+        for index, row in df_metrics.iterrows():
+            names = [n.strip() for n in row['builders'].split(',') if n.strip()]
+            for name in names: builders_list.append({'Employee': name, 'Units Logged': 1})
+                
+        df_builders_raw = pd.DataFrame(builders_list)
+        if not df_builders_raw.empty:
+            df_builders_final = df_builders_raw.groupby('Employee').sum().reset_index().sort_values(by='Units Logged', ascending=False)
+            st.bar_chart(data=df_builders_final, x='Employee', y='Units Logged', use_container_width=True)
+    else:
+        st.info("The Dashboard metrics will automatically populate as soon as you record your first entries.")
