@@ -109,14 +109,17 @@ else:
 # ------------------------------------------
 with tab_create:
     st.header("Log New Panel / Component")
-    # [Your core pre-existing business logic for adding panels goes here - translated to English]
+    st.write("Welcome to the registration area.")
+    # [Your core pre-existing business logic for adding panels goes here]
 
 with tab_read:
     st.header("Production History")
+    st.write("Use the controls below to search or modify data.")
     # [Your core pre-existing business logic for searching, filtering, editing, deleting, and CSV export goes here]
 
 with tab_dashboard:
     st.header("📈 Plant Performance Dashboard")
+    st.write("Real-time factory metrics.")
     # [Your core pre-existing analytics charts and metrics go here]
 
 # ------------------------------------------
@@ -144,7 +147,7 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                         st.error("⚠️ Username is mandatory and Password/PIN must be at least 6 characters long.")
                     else:
                         try:
-                            # 1. Enmask the username into an email string for the Supabase Engine
+                            # Enmask the username into an email string invisibly for Supabase
                             masked_email = f"{cleaned_user}{INTERNAL_DOMAIN}"
                             
                             auth_res = supabase.auth.admin.create_user({
@@ -154,7 +157,6 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                             })
                             
                             if auth_res.user:
-                                # 2. Insert the clean profile metadata into the public profiles table
                                 profile_data = {
                                     "id": auth_res.user.id,
                                     "username": cleaned_user,
