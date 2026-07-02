@@ -79,9 +79,12 @@ if st.session_state.auth_user is None:
 # MAIN APPLICATION INTERFACE (AUTHENTICATED)
 # ==========================================
 
-# Sidebar Operator Profile Box
-st.sidebar.markdown(f"👤 **Operator:** `{st.session_state.display_username.upper()}`")
-st.sidebar.markdown(f"🔑 **Role:** `{st.session_state.user_role.upper()}`")
+# Sidebar Operator Profile Box (Safe strings handling to avoid NoneType errors)
+op_name = str(st.session_state.display_username).upper() if st.session_state.display_username else "UNKNOWN"
+op_role = str(st.session_state.user_role).upper() if st.session_state.user_role else "OPERATOR"
+
+st.sidebar.markdown(f"👤 **Operator:** `{op_name}`")
+st.sidebar.markdown(f"🔑 **Role:** `{op_role}`")
 if st.sidebar.button("Log Out", type="secondary", use_container_width=True):
     logout_user()
 
