@@ -26,14 +26,11 @@ if "user_role" not in st.session_state: st.session_state.user_role = None
 if "display_username" not in st.session_state: st.session_state.display_username = ""
 
 def login_user(username, password):
-    # Invisibly mask the plant username as a valid email format for Supabase
     fictional_email = f"{username.lower().strip()}{INTERNAL_DOMAIN}"
     try:
         auth_response = supabase.auth.sign_in_with_password({"email": fictional_email, "password": password})
         if auth_response.user:
             st.session_state.auth_user = auth_response.user
-            
-            # Fetch username and assigned role from public user profiles table
             profile_response = supabase.table("user_profiles").select("username, role").eq("id", auth_response.user.id).execute()
             if profile_response.data:
                 st.session_state.user_role = profile_response.data[0]["role"]
@@ -41,10 +38,10 @@ def login_user(username, password):
             else:
                 st.session_state.user_role = "operator"
                 st.session_state.display_username = username
-            
             st.rerun()
-    except Exception:
-        st.error("❌ Invalid Username or Password/PIN.")
+    except Exception as e:
+        # 🔍 ESTA LÍNEA TE MOSTRARÁ EL ERROR REAL EN PANTALLA:
+        st.error(f"🚨 Supabase API Error Details: {str(e)}")
 
 def logout_user():
     try:
