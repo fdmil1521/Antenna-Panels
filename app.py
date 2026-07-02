@@ -26,11 +26,14 @@ if "user_role" not in st.session_state: st.session_state.user_role = None
 if "display_username" not in st.session_state: st.session_state.display_username = ""
 
 def login_user(username, password):
+    # Invisibly mask the plant username as a valid email format for Supabase
     fictional_email = f"{username.lower().strip()}{INTERNAL_DOMAIN}"
     try:
         auth_response = supabase.auth.sign_in_with_password({"email": fictional_email, "password": password})
         if auth_response.user:
             st.session_state.auth_user = auth_response.user
+            
+            # Fetch username and assigned role from public user profiles table
             profile_response = supabase.table("user_profiles").select("username, role").eq("id", auth_response.user.id).execute()
             if profile_response.data:
                 st.session_state.user_role = profile_response.data[0]["role"]
@@ -38,10 +41,10 @@ def login_user(username, password):
             else:
                 st.session_state.user_role = "operator"
                 st.session_state.display_username = username
+            
             st.rerun()
     except Exception as e:
-        # 🔍 ESTA LÍNEA TE MOSTRARÁ EL ERROR REAL EN PANTALLA:
-        st.error(f"🚨 Supabase API Error Details: {str(e)}")
+        st.error(f"❌ Invalid Username or Password/PIN. API Details: {str(e)}")
 
 def logout_user():
     try:
@@ -79,7 +82,7 @@ if st.session_state.auth_user is None:
 # MAIN APPLICATION INTERFACE (AUTHENTICATED)
 # ==========================================
 
-# Sidebar Operator Profile Box (Safe strings handling to avoid NoneType errors)
+# Sidebar Operator Profile Box (Safe handling to avoid NoneType upper() crashes)
 op_name = str(st.session_state.display_username).upper() if st.session_state.display_username else "UNKNOWN"
 op_role = str(st.session_state.user_role).upper() if st.session_state.user_role else "OPERATOR"
 
@@ -87,6 +90,19 @@ st.sidebar.markdown(f"👤 **Operator:** `{op_name}`")
 st.sidebar.markdown(f"🔑 **Role:** `{op_role}`")
 if st.sidebar.button("Log Out", type="secondary", use_container_width=True):
     logout_user()
+
+# ==========================================
+# LIVE DATA DIAGNOSTIC (TEMPORAL)
+# ==========================================
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔍 DB Diagnostic Check")
+try:
+    test_panels = supabase.table("panels").select("*").limit(5).execute()
+    test_jobs = supabase.table("job_configs").select("*").limit(5).execute()
+    st.sidebar.success(f"📦 Panels rows read: {len(test_panels.data)}")
+    st.sidebar.success(f"⚙️ Job Configs rows read: {len(test_jobs.data)}")
+except Exception as db_err:
+    st.sidebar.error(f"🚨 Query Failed: {str(db_err)}")
 
 # Dynamic Menu Tabs based on Role Access
 if st.session_state.user_role == "admin":
@@ -110,17 +126,32 @@ else:
 with tab_create:
     st.header("Log New Panel / Component")
     st.write("Welcome to the registration area.")
-    # [Your core pre-existing business logic for adding panels goes here]
+    # [Tus formularios para insertar datos en st.session_state o consultas a panels/job_configs van aquí abajo]
 
+# ------------------------------------------
+# TAB 2: HISTORY READ
+# ------------------------------------------
 with tab_read:
     st.header("Production History")
     st.write("Use the controls below to search or modify data.")
-    # [Your core pre-existing business logic for searching, filtering, editing, deleting, and CSV export goes here]
+    
+    # Ejemplo de visualización directa para comprobar la lectura
+    st.subheader("Live Panels Data View")
+    try:
+        all_panels = supabase.table("panels").select("*").execute()
+        if all_panels.data:
+            st.dataframe(pd.DataFrame(all_panels.data), use_container_width=True)
+        else:
+            st.info("No data returned from the 'panels' table.")
+    except Exception as read_err:
+        st.error(f"Could not load historical panel dataframe: {str(read_err)}")
 
+# ------------------------------------------
+# TAB 3: DASHBOARD
+# ------------------------------------------
 with tab_dashboard:
     st.header("📈 Plant Performance Dashboard")
     st.write("Real-time factory metrics.")
-    # [Your core pre-existing analytics charts and metrics go here]
 
 # ------------------------------------------
 # TAB 4: USER CONTROL PANEL (ADMIN ONLY)
@@ -128,7 +159,7 @@ with tab_dashboard:
 if st.session_state.user_role == "admin" and tab_admin_users:
     with tab_admin_users:
         st.header("⚙️ Shop Floor User Provisioning")
-        st.write("As an Administrator, you can grant direct access credentials to new technical personnel and operators.")
+        st.write("As an Administrator, you can grant direct access credentials to new technical personnel.")
         
         col_new_u, col_list_u = st.columns([1.2, 1])
         
@@ -147,15 +178,12 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                         st.error("⚠️ Username is mandatory and Password/PIN must be at least 6 characters long.")
                     else:
                         try:
-                            # Enmask the username into an email string invisibly for Supabase
                             masked_email = f"{cleaned_user}{INTERNAL_DOMAIN}"
-                            
                             auth_res = supabase.auth.admin.create_user({
                                 "email": masked_email,
                                 "password": new_password,
                                 "email_confirm": True
                             })
-                            
                             if auth_res.user:
                                 profile_data = {
                                     "id": auth_res.user.id,
@@ -164,8 +192,8 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                                 }
                                 supabase.table("user_profiles").insert(profile_data).execute()
                                 st.success(f"✔️ User '{cleaned_user}' successfully registered as {assigned_role.upper()}.")
-                        except Exception:
-                            st.error("🚨 Registration Error: Username already exists or higher system privileges are required.")
+                        except Exception as reg_err:
+                            st.error(f"🚨 Registration Error: {str(reg_err)}")
         
         with col_list_u:
             st.subheader("Authorized Personnel Directory")
