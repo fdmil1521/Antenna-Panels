@@ -25,7 +25,7 @@ except Exception as e:
     st.stop()
 
 # Internal domain mask to satisfy Supabase Auth requirements invisibly
-INTERNAL_DOMAIN = "@factory.local"
+INTERNAL_DOMAIN = "@factory.com"
 
 # ==========================================
 # SESSION STATE INITIALIZATION & ALERTS
