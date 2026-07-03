@@ -276,7 +276,7 @@ with tab_create:
                     "job_id": new_job_id.strip(),
                     "components": components_input.strip(),
                     "max_sequence": int(max_seq_input),
-                    "min_panel_id": int(min_id_input),
+                    "min_id_input": int(min_id_input),
                     "max_panel_id": int(max_id_input)
                 }
                 supabase.table("job_configs").insert(job_data).execute()
@@ -468,7 +468,6 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                         try:
                             masked_email = f"{cleaned_user}{INTERNAL_DOMAIN}"
                             
-                            # Native request deployment bypasses service_role limitations safely
                             signup_url = f"{URL}/auth/v1/signup"
                             headers = {
                                 "apikey": KEY,
@@ -482,8 +481,9 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                             response = requests.post(signup_url, json=payload, headers=headers)
                             res_data = response.json()
                             
-                            if response.status_code != 200 or "msg" in res_data or "error" in res_data:
-                                error_msg = res_data.get("msg") or res_data.get("error_description") or "Unknown Auth Error"
+                            # Validar explícitamente el código HTTP y la existencia de 'id' para evitar KeyErrors
+                            if response.status_code != 200 or "id" not in res_data:
+                                error_msg = res_data.get("msg") or res_data.get("error_description") or res_data.get("message") or "Auth Rate Limit or Domain Restriction"
                                 st.error(f"🚨 Supabase Auth Error: {error_msg}")
                             else:
                                 new_user_id = res_data["id"]
@@ -500,7 +500,7 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                                 st.rerun()
                                 
                         except Exception as reg_err:
-                            st.error(f"🚨 Connection Error: {str(reg_err)}")
+                            st.error(f"🚨 System Error: {str(reg_err)}")
         
         with col_list_u:
             st.subheader("Authorized Personnel Directory")
