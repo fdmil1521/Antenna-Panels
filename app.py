@@ -2,12 +2,17 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
+import requests
 
 # ==========================================
-# DATABASE CONNECTION & CONFIGURATION
+# CLOUD DATABASE CONNECTION (SUPABASE)
 # ==========================================
-URL = st.secrets["SUPABASE_URL"]
-KEY = st.secrets["SUPABASE_KEY"]
+if "SUPABASE_URL" in st.secrets and "SUPABASE_KEY" in st.secrets:
+    URL = st.secrets["SUPABASE_URL"]
+    KEY = st.secrets["SUPABASE_KEY"]
+else:
+    URL = "https://lymbhtsaehqztqjlvgpb.supabase.co"
+    KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx5bWJodHNhZWhxenRxamx2Z3BiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzODA5MjUsImV4cCI6MjA5Njk1NjkyNX0.ZlzwBWeHmxHIhjXJwkRcCQZv8OnNhXQPxiMCDUCuNwk"
 
 @st.cache_resource
 def get_supabase_client() -> Client:
@@ -52,7 +57,7 @@ if st.session_state.toast_msg:
     st.session_state.toast_icon = None
 
 # ==========================================
-# AUTHENTICATION LOGIC FUNCTIONS
+# AUTHENTICATION FUNCTIONS
 # ==========================================
 def login_user(username, password):
     fictional_email = f"{username.lower().strip()}{INTERNAL_DOMAIN}"
@@ -462,21 +467,40 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                     else:
                         try:
                             masked_email = f"{cleaned_user}{INTERNAL_DOMAIN}"
-                            auth_res = supabase.auth.admin.create_user({
+                            
+                            # Native request deployment bypasses service_role limitations safely
+                            signup_url = f"{URL}/auth/v1/signup"
+                            headers = {
+                                "apikey": KEY,
+                                "Content-Type": "application/json"
+                            }
+                            payload = {
                                 "email": masked_email,
-                                "password": new_password,
-                                "email_confirm": True
-                            })
-                            if auth_res.user:
+                                "password": new_password
+                            }
+                            
+                            response = requests.post(signup_url, json=payload, headers=headers)
+                            res_data = response.json()
+                            
+                            if response.status_code != 200 or "msg" in res_data or "error" in res_data:
+                                error_msg = res_data.get("msg") or res_data.get("error_description") or "Unknown Auth Error"
+                                st.error(f"🚨 Supabase Auth Error: {error_msg}")
+                            else:
+                                new_user_id = res_data["id"]
+                                
                                 profile_data = {
-                                    "id": auth_res.user.id,
+                                    "id": new_user_id,
                                     "username": cleaned_user,
                                     "role": assigned_role
                                 }
                                 supabase.table("user_profiles").insert(profile_data).execute()
-                                st.success(f"✔️ User '{cleaned_user}' successfully registered as {assigned_role.upper()}.")
+                                
+                                st.session_state.toast_msg = f"✔️ User '{cleaned_user}' successfully registered as {assigned_role.upper()}."
+                                st.session_state.toast_icon = "👤"
+                                st.rerun()
+                                
                         except Exception as reg_err:
-                            st.error(f"🚨 Registration Error: {str(reg_err)}")
+                            st.error(f"🚨 Connection Error: {str(reg_err)}")
         
         with col_list_u:
             st.subheader("Authorized Personnel Directory")
