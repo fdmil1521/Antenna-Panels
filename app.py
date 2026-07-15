@@ -481,26 +481,22 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                             response = requests.post(signup_url, json=payload, headers=headers)
                             res_data = response.json()
                             
-                            # Validar explícitamente el código HTTP y la existencia de 'id' para evitar KeyErrors
                             if response.status_code != 200 or "id" not in res_data:
-                                error_msg = res_data.get("msg") or res_data.get("error_description") or res_data.get("message") or "Auth Rate Limit or Domain Restriction"
-                                st.error(f"🚨 Supabase Auth Error: {error_msg}")
+                                raw_error = res_data.get("error_description") or res_data.get("msg") or res_data.get("message") or str(res_data)
+                                st.error(f"🚨 Supabase API Response: {raw_error}")
                             else:
-                                new_user_id = res_data["id"]
-                                
-                                profile_data = {
-                                    "id": new_user_id,
-                                    "username": cleaned_user,
-                                    "role": assigned_role
-                                }
-                                supabase.table("user_profiles").insert(profile_data).execute()
-                                
+                                # 💡 Opcional: Si quieres forzar que el rol sea 'admin' en lugar de 'operator' (asignado por el trigger)
+                                if assigned_role == "admin":
+                                    new_user_id = res_data["id"]
+                                    supabase.table("user_profiles").update({"role": "admin"}).eq("id", new_user_id).execute()
+
                                 st.session_state.toast_msg = f"✔️ User '{cleaned_user}' successfully registered as {assigned_role.upper()}."
                                 st.session_state.toast_icon = "👤"
                                 st.rerun()
                                 
                         except Exception as reg_err:
                             st.error(f"🚨 System Error: {str(reg_err)}")
+                    
         
         with col_list_u:
             st.subheader("Authorized Personnel Directory")
