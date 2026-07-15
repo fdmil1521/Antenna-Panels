@@ -481,21 +481,37 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                             response = requests.post(signup_url, json=payload, headers=headers)
                             res_data = response.json()
                             
-                            if response.status_code != 200 or "id" not in res_data:
-                                raw_error = res_data.get("error_description") or res_data.get("msg") or res_data.get("message") or str(res_data)
-                                st.error(f"🚨 Supabase API Response: {raw_error}")
+                            # 🛡️ VALIDACIÓN: Supabase Auth exitoso devuelve el status 200 o 201
+                            if response.status_code not in [200, 201]:
+                                error_msg = res_data.get("error_description") or res_data.get("msg") or res_data.get("message") or str(res_data)
+                                st.error(f"🚨 Supabase Auth Error: {error_msg}")
                             else:
-                                # 💡 Opcional: Si quieres forzar que el rol sea 'admin' en lugar de 'operator' (asignado por el trigger)
-                                if assigned_role == "admin":
+                                # Extraer el ID correctamente sin importar la estructura del JSON
+                                new_user_id = None
+                                if "id" in res_data:
                                     new_user_id = res_data["id"]
+                                elif "user" in res_data and "id" in res_data["user"]:
+                                    new_user_id = res_data["user"]["id"]
+                                
+                                # Si el rol asignado es administrador, actualizamos su rol en la tabla pública
+                                if assigned_role == "admin" and new_user_id:
                                     supabase.table("user_profiles").update({"role": "admin"}).eq("id", new_user_id).execute()
 
+                                # 🎉 MENSAJE DE ÉXITO VISIBLE EN PANTALLA (Mensaje verde definitivo)
+                                st.success(f"🎉 User '{cleaned_user}' was successfully created with role: {assigned_role.upper()}!")
+                                
+                                # Guardar notificación emergente y recargar para refrescar el directorio
                                 st.session_state.toast_msg = f"✔️ User '{cleaned_user}' successfully registered as {assigned_role.upper()}."
                                 st.session_state.toast_icon = "👤"
+                                
+                                # Breve espera para que el administrador pueda ver el cartel antes de refrescar
+                                import time
+                                time.sleep(1.5)
                                 st.rerun()
                                 
                         except Exception as reg_err:
                             st.error(f"🚨 System Error: {str(reg_err)}")
+                    
                     
         
         with col_list_u:
