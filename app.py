@@ -3,6 +3,7 @@ import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
 import requests
+import time
 
 # ==========================================
 # CLOUD DATABASE CONNECTION (SUPABASE)
@@ -147,7 +148,7 @@ if st.session_state.auth_user is None:
 # ==========================================
 st.set_page_config(page_title="Cloud Panel Production Control", layout="wide")
 
-# Sidebar Operator Profile Box (Safe Handling)
+# Sidebar Operator Profile Box
 op_name = str(st.session_state.display_username).upper() if st.session_state.display_username else "UNKNOWN"
 op_role = str(st.session_state.user_role).upper() if st.session_state.user_role else "OPERATOR"
 
@@ -447,9 +448,9 @@ with tab_dashboard:
 if st.session_state.user_role == "admin" and tab_admin_users:
     with tab_admin_users:
         st.header("⚙️ Shop Floor User Provisioning")
-        st.write("As an Administrator, you can grant direct access credentials to new technical personnel.")
+        st.write("As an Administrator, you can grant direct access credentials and manage existing accounts.")
         
-        col_new_u, col_list_u = st.columns([1.2, 1])
+        col_new_u, col_list_u = st.columns([1.1, 1.3])
         
         with col_new_u:
             st.subheader("Register New Personnel")
@@ -481,48 +482,102 @@ if st.session_state.user_role == "admin" and tab_admin_users:
                             response = requests.post(signup_url, json=payload, headers=headers)
                             res_data = response.json()
                             
-                            # 🛡️ VALIDACIÓN: Supabase Auth exitoso devuelve el status 200 o 201
                             if response.status_code not in [200, 201]:
                                 error_msg = res_data.get("error_description") or res_data.get("msg") or res_data.get("message") or str(res_data)
                                 st.error(f"🚨 Supabase Auth Error: {error_msg}")
                             else:
-                                # Extraer el ID correctamente sin importar la estructura del JSON
                                 new_user_id = None
                                 if "id" in res_data:
                                     new_user_id = res_data["id"]
                                 elif "user" in res_data and "id" in res_data["user"]:
                                     new_user_id = res_data["user"]["id"]
                                 
-                                # Si el rol asignado es administrador, actualizamos su rol en la tabla pública
                                 if assigned_role == "admin" and new_user_id:
                                     supabase.table("user_profiles").update({"role": "admin"}).eq("id", new_user_id).execute()
 
-                                # 🎉 MENSAJE DE ÉXITO VISIBLE EN PANTALLA (Mensaje verde definitivo)
                                 st.success(f"🎉 User '{cleaned_user}' was successfully created with role: {assigned_role.upper()}!")
                                 
-                                # Guardar notificación emergente y recargar para refrescar el directorio
                                 st.session_state.toast_msg = f"✔️ User '{cleaned_user}' successfully registered as {assigned_role.upper()}."
                                 st.session_state.toast_icon = "👤"
                                 
-                                # Breve espera para que el administrador pueda ver el cartel antes de refrescar
-                                import time
                                 time.sleep(1.5)
                                 st.rerun()
                                 
                         except Exception as reg_err:
                             st.error(f"🚨 System Error: {str(reg_err)}")
-                    
-                    
         
         with col_list_u:
-            st.subheader("Authorized Personnel Directory")
+            st.subheader("🛠️ User Directory & Management Panel")
             try:
-                users_profiles_res = supabase.table("user_profiles").select("username, role, created_at").execute()
-                if users_profiles_res.data:
-                    df_users = pd.DataFrame(users_profiles_res.data)
-                    df_users.columns = ["Username / ID", "Access Role", "Registration Date"]
-                    st.dataframe(df_users, use_container_width=True, hide_index=True)
-                else:
-                    st.info("No operator profiles found in the system database.")
-            except Exception:
-                st.warning("Could not fetch the active operator directory at this time.")
+                profiles_res = supabase.table("user_profiles").select("id, username, role").execute()
+                user_list = profiles_res.data if profiles_res else []
+            except Exception as e:
+                user_list = []
+                st.error(f"Error loading directory: {str(e)}")
+
+            if not user_list:
+                st.info("No users registered in the system yet.")
+            else:
+                df_users = pd.DataFrame(user_list)
+                df_users.columns = ["Database UUID", "Username / ID", "Access Role"]
+                st.dataframe(df_users[["Username / ID", "Access Role", "Database UUID"]], use_container_width=True, hide_index=True)
+                
+                st.write("---")
+                st.markdown("#### ⚙️ Edit Selected User")
+                
+                user_map = {u["username"]: u for u in user_list}
+                selected_username = st.selectbox("Select a user to modify:", options=list(user_map.keys()))
+                
+                if selected_username:
+                    target_user = user_map[selected_username]
+                    target_id = target_user["id"]
+                    current_role = target_user["role"].upper()
+                    
+                    col_role, col_pass, col_del = st.columns(3)
+                    
+                    # COLUMNA A: CAMBIAR ROL
+                    with col_role:
+                        st.markdown("**Change Account Role**")
+                        st.caption(f"Current role: {current_role}")
+                        new_role = st.selectbox("New Role:", ["operator", "admin"], key=f"role_{target_id}")
+                        if st.button("🔄 Update Role", key=f"btn_role_{target_id}", use_container_width=True):
+                            try:
+                                supabase.table("user_profiles").update({"role": new_role}).eq("id", target_id).execute()
+                                st.success(f"Role updated to {new_role.upper()}!")
+                                time.sleep(1.2)
+                                st.rerun()
+                            except Exception as err:
+                                st.error(f"Failed: {str(err)}")
+                    
+                    # COLUMNA B: RESETEAR CONTRASEÑA
+                    with col_pass:
+                        st.markdown("**Reset Password / PIN**")
+                        new_pin = st.text_input("New Password (min 6 char):", type="password", key=f"pin_{target_id}")
+                        if st.button("🔑 Save Password", key=f"btn_pin_{target_id}", use_container_width=True):
+                            if len(new_pin.strip()) < 6:
+                                st.error("Min 6 characters required.")
+                            else:
+                                try:
+                                    supabase.rpc("adm_reset_password", {"user_uuid": target_id, "new_plain_password": new_pin.strip()}).execute()
+                                    st.success("Password updated!")
+                                    time.sleep(1.2)
+                                    st.rerun()
+                                except Exception as err:
+                                    st.error(f"Failed: {str(err)}")
+                    
+                    # COLUMNA C: ELIMINAR USUARIO
+                    with col_del:
+                        st.markdown("**Danger Zone**")
+                        st.caption("Action is permanent")
+                        confirm_delete = st.checkbox(f"Confirm delete", key=f"chk_{target_id}")
+                        if st.button("🗑️ Delete User", key=f"btn_del_{target_id}", type="primary", use_container_width=True):
+                            if not confirm_delete:
+                                st.warning("Check box first.")
+                            else:
+                                try:
+                                    supabase.rpc("adm_delete_user", {"user_uuid": target_id}).execute()
+                                    st.success("User deleted completely.")
+                                    time.sleep(1.2)
+                                    st.rerun()
+                                except Exception as err:
+                                    st.error(f"Failed: {str(err)}")
