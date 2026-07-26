@@ -277,7 +277,7 @@ with tab_create:
                     "job_id": new_job_id.strip(),
                     "components": components_input.strip(),
                     "max_sequence": int(max_seq_input),
-                    "min_id_input": int(min_id_input),
+                    "min_panel_id": int(min_id_input),  # Correcto: min_panel_id
                     "max_panel_id": int(max_id_input)
                 }
                 supabase.table("job_configs").insert(job_data).execute()
