@@ -288,6 +288,9 @@ with tab_create:
 # ------------------------------------------
 # TAB 2: SEARCH & MANAGE LOGS
 # ------------------------------------------
+# ------------------------------------------
+# TAB 2: SEARCH & MANAGE LOGS
+# ------------------------------------------
 with tab_read:
     st.header("Production History")
     
@@ -346,15 +349,28 @@ with tab_read:
                     st.rerun()
         st.markdown("---")
 
-    f_col1, f_col2, f_col3 = st.columns(3)
-    with f_col1: filter_job = st.multiselect("Filter by Job Number:", list(JOB_STRUCTURES.keys()), key="f_job")
-    with f_col2: filter_builder = st.text_input("Search Builder Name:", key="f_builder")
-    with f_col3: filter_date = st.date_input("Filter from date:", value=None, key="f_date")
+    # 🔍 SECCIÓN DE FILTROS ACTUALIZADA (AÑADIDO SEQUENCE NO Y PANEL ID)
+    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+    with f_col1: 
+        filter_job = st.multiselect("Filter by Job Number:", list(JOB_STRUCTURES.keys()), key="f_job")
+    with f_col2: 
+        filter_seq = st.number_input("Search Sequence No:", min_value=0, value=0, step=1, key="f_seq", help="Set to 0 to show all sequences")
+    with f_col3: 
+        filter_builder = st.text_input("Search Builder Name:", key="f_builder")
+    with f_col4: 
+        filter_date = st.date_input("Filter from date:", value=None, key="f_date")
 
+    # CONSTRUCCIÓN DE LA CONSULTA A SUPABASE
     cloud_query = supabase.table("panels").select("*")
-    if filter_job: cloud_query = cloud_query.in_("job_id", filter_job)
-    if filter_builder: cloud_query = cloud_query.ilike("builders", f"%{filter_builder}%")
-    if filter_date: cloud_query = cloud_query.gte("production_date", str(filter_date))
+    
+    if filter_job: 
+        cloud_query = cloud_query.in_("job_id", filter_job)
+    if filter_seq > 0: 
+        cloud_query = cloud_query.eq("sequence_num", int(filter_seq))
+    if filter_builder: 
+        cloud_query = cloud_query.ilike("builders", f"%{filter_builder}%")
+    if filter_date: 
+        cloud_query = cloud_query.gte("production_date", str(filter_date))
     
     response = cloud_query.order("id", desc=True).execute()
     
@@ -363,16 +379,23 @@ with tab_read:
         df_origin["Edit Row"] = False
         df_origin["Delete Row"] = False
         
+        # Muestra en la tabla Sequence No y Panel ID claramente
         df_display = df_origin[[
             "id", "job_id", "component_type", "sequence_num", 
             "internal_panel_id", "production_date", "builders", "notes", "Edit Row", "Delete Row"
         ]]
         
         col_mapping = {
-            "id": "Log ID", "job_id": "Job Number", "component_type": "Component Type",
-            "sequence_num": "Sequence No", "internal_panel_id": "Panel ID",
-            "production_date": "Date", "builders": "Builders", "notes": "Notes",
-            "Edit Row": "📝 Edit", "Delete Row": "🗑️ Delete"
+            "id": "Log ID", 
+            "job_id": "Job Number", 
+            "component_type": "Component Type",
+            "sequence_num": "Sequence No", 
+            "internal_panel_id": "Panel ID",
+            "production_date": "Date", 
+            "builders": "Builders", 
+            "notes": "Notes",
+            "Edit Row": "📝 Edit", 
+            "Delete Row": "🗑️ Delete"
         }
         df_display = df_display.rename(columns=col_mapping)
         
